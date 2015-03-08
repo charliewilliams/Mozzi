@@ -123,19 +123,8 @@ public:
 
     /** CW Assignment Constructor.
      */
-    
-    ADSR& operator= (const ADSR &source) {
-        
-        attack.phase_type = source.attack.phase_type;
-        decay.phase_type = source.decay.phase_type;
-        sustain.phase_type = source.sustain.phase_type;
-        release.phase_type = source.release.phase_type;
-        idle.phase_type = source.idle.phase_type;
-        release.level = source.release.level;
-        
-        return *this;
-    }
-    
+
+	
 /** Updates the internal controls of the ADSR.
 	Call this in updateControl().
 	*/
