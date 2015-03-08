@@ -24,8 +24,8 @@ and comment out \#define AUDIO_MODE STANDARD.
 */
 
 //#define AUDIO_MODE STANDARD
-#define AUDIO_MODE STANDARD_PLUS
-//#define AUDIO_MODE HIFI
+//#define AUDIO_MODE STANDARD_PLUS
+#define AUDIO_MODE HIFI
 
 
 /** @ingroup core
