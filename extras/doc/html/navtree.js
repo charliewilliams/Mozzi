@@ -1,6 +1,7 @@
 var NAVTREE =
 [
   [ "Mozzi", "index.html", [
+    [ "Modules", "modules.html", "modules" ],
     [ "Classes", null, [
       [ "Class List", "annotated.html", "annotated" ],
       [ "Class Hierarchy", "hierarchy.html", "hierarchy" ],
@@ -19,7 +20,8 @@ var NAVTREE =
 var NAVTREEINDEX =
 [
 "01_8_basics_2_vibrato_2_vibrato_8ino-example.html",
-"class_wave_packet.html"
+"class_rolling_stat.html",
+"mozzi__rand_8h_source.html"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

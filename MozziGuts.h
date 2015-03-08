@@ -5,31 +5,21 @@
  *
  * This file is part of Mozzi.
  *
- * Mozzi is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Mozzi is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Mozzi.  If not, see <http://www.gnu.org/licenses/>.
+ * Mozzi by Tim Barrass is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
  *
  */
 
 #ifndef MOZZIGUTS_H_
 #define MOZZIGUTS_H_
 
-#if F_CPU != 16000000
-#error "Mozzi expects a cpu clock speed of 16MHz!  You can try on boards with other clock speeds by removing this line in MozziGuts.h, but, well.....good luck!"
+//#define F_CPU 8000000 // testing
+
+#if ARDUINO >= 100
+ #include "Arduino.h"
+#else
+ #include "WProgram.h"
 #endif
 
-#include "TimerZero.h"
-#include "TimerOne.h"
-#include "FrequencyTimer2.h"
 #include "mozzi_analog.h"
 
 /** @ingroup core
@@ -50,18 +40,24 @@ for example: \#define CONTROL_RATE 256
 /** @ingroup core
 Used to set AUDIO_MODE to STANDARD, STANDARD_PLUS, or HIFI.
 
-STANDARD
+STANDARD / STANDARD_PLUS
 ---------------
-Use \#define AUDIO_MODE STANDARD in Mozzi/config.h to select Mozzi's original audio
-output configuration, which is nearly 9 bit sound (-244 to 243) at 16384 Hz and
-16384 Hz pwm rate. It uses Timer 1 to output samples at AUDIO_RATE 16384 Hz,
-with an interrupt being called once every PWM cycle to set the timer's own pwm
-level.
+Use \#define AUDIO_MODE STANDARD_PLUS in Mozzi/config.h to select this
+output configuration, which is nearly 9 bit sound (-244 to 243) at 16384 Hz sample rate (AUDIO_RATE) and
+32768 Hz PWM rate. It uses Timer 1 to for PWM and the sample updating routine (as an interrupt).
 
-Advantages: Only uses one timer for audio, and one output pin
-Disadvantages: low dynamic range, some people can hear pwm carrier frequency, may need simple hardware filter.
+STANDARD is obsolete now, replaced by STANDARD_PLUS which is the default audio mode.
+STANDARD mode uses 16384 Hz PWM rate with an output interrupt at the same frequency.  
+Some people can hear the PWM carrier frequency as an annoying whine.
 
-Below is a list of the Digital Pins used by Mozzi for STANDARD_PLUS mode PWM audio out on different boards.
+STANDARD_PLUS mode uses 32768 Hz PWM rate, so the PWM carrier is out of hearing range.
+In this mode every alternate interrupt is used for the sample update (unless you /#define AUDIO_RATE 32768 in mozzi_config.h),
+which makes it slightly less efficient than STANDARD, but almost always better.
+
+Advantages: Only uses one timer for audio, and one output pin.
+Disadvantages: low dynamic range.
+
+Below is a list of the Digital Pins used by Mozzi for STANDARD and STANDARD_PLUS audio out on different boards.
 Those which have been tested and reported to work have an x.
 Feedback about others is welcome.
 
@@ -78,8 +74,11 @@ x..B5........Teensy2  \n
 x..B5(25)..Teensy2++  \n
 ....13	.......Sanguino  \n
 
+On Teensy 3.0/3.1 STANDARD and STANDARD_PLUS are the same, providing 16384Hz sample rate and 12 bit resolution on pin A14/ADC.
+The Teensy 3 ADC output does not rely on PWM.
 
-HIFI
+
+HIFI (not for Teensy 3.0/3.1)
 ----
 Use \#define AUDIO_MODE HIFI in Mozzi/config.h to set the audio mode to HIFI for output 14 bit sound at 16384 Hz sample rate and 125kHz PWM rate.
 The high PWM rate of HIFI mode places the carrier frequency beyond audible range, 
@@ -132,6 +131,7 @@ x...............11.........12...............Freetronics EtherMega  \n
 x...........B5(25)...B6(26)...........Teensy2++  \n
 .................13.........12...............Sanguino  \n
 
+HIFI is not available/not required on Teensy 3.0/3.1.
 */
 
 //enum audio_modes {STANDARD,STANDARD_PLUS,HIFI};
@@ -153,7 +153,7 @@ x...........B5(25)...B6(26)...........Teensy2++  \n
 #endif
 
 #if (AUDIO_MODE == STANDARD) && (AUDIO_RATE == 32768)
-#error AUDIO_RATE 32768 does not work when AUDIO_MODE is STANDARD, check settings in Mozzi/mozzi_config.h
+#error AUDIO_RATE 32768 does not work when AUDIO_MODE is STANDARD, try setting the AUDIO_MODE to STANDARD_PLUS in Mozzi/mozzi_config.h
 #endif
 
 
@@ -169,6 +169,9 @@ x...........B5(25)...B6(26)...........Teensy2++  \n
 #endif
 
 
+#if defined(__MK20DX128__) || defined(__MK20DX256__) // Teensy 3
+#include "AudioConfigTeensy3_12bit.h"
+#else
 #if (AUDIO_MODE == STANDARD)
 #include "AudioConfigStandard9bitPwm.h"
 #elif (AUDIO_MODE == STANDARD_PLUS)
@@ -177,12 +180,24 @@ x...........B5(25)...B6(26)...........Teensy2++  \n
 #include "AudioConfigHiSpeed14bitPwm.h"
 #endif
 
-// common abbreviations
-typedef unsigned char uchar;
-typedef unsigned int uint;
-typedef unsigned long ulong;
+#endif
 
-
+// common numeric types
+#if defined(__MK20DX128__) || defined(__MK20DX256__) // teensy 3, 3.1
+//typedef uint8_t byte;//unsigned char;
+//typedef int8_t char;
+//typedef (uint16_t) (short unsigned int);
+//typedef int16_t int;
+//typedef (uint32_t) (unsigned long);
+//typedef int32_t long; 
+#else
+typedef unsigned char uint8_t;
+typedef signed char int8_t;
+typedef unsigned int uint16_t;
+typedef signed int int16_t;
+typedef unsigned long uint32_t;
+typedef signed long int32_t;
+#endif
 
 
 /** @ingroup core
@@ -246,7 +261,7 @@ void unPauseMozzi();
 This is where you put your audio code. updateAudio() has to keep up with the
 AUDIO_RATE of 16384 Hz, so to keep things running smoothly, avoid doing any
 calculations here which could be done in setup() or updateControl().
-@return an audio sample.  In STANDARD mode this is between -244 and 243 inclusive.
+@return an audio sample.  In STANDARD modes this is between -244 and 243 inclusive.
 In HIFI mode, it's a 14 bit number between -16384 and 16383 inclusive.
 */
 int updateAudio();
@@ -273,7 +288,6 @@ to save processing power. Otherwise it may be most efficient to
 calculate a block of samples at a time by putting audioHook() in a loop of its
 own, rather than calculating only 1 sample for each time your other functions
 are called.
-@todo Try pre-decrement positions and swap gap calc around
 */
 void audioHook();
 
@@ -305,7 +319,6 @@ Timer 0 for control interrupts. audioTicks() is updated each time an audio sampl
 is output, so the resolution is 1/AUDIO_RATE microseconds (61 microseconds when AUDIO_RATE is
 16384 Hz).
 @return the number of audio ticks since the program began.
-@todo  incorporate audioTicks() in a more accurate EventDelay()?
 */
 unsigned long audioTicks();
 

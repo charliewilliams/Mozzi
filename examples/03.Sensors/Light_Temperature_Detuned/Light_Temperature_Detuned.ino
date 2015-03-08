@@ -4,35 +4,30 @@
   Pairs of audio oscillators are detuned in response to light on an LDR and
   the base frequencies are offset depending on the temperature.
   
-  It's a pretty dumb, boring and horrible  sonification, but at this stage 
+  It's a pretty dumb sonification, but at this stage 
   it's just to demonstrate the possibility of reading sensors while
   lots of audio oscillators are running.
   
-  This sketch needs to be compiled using STANDARD audio mode 
-  to avoid clicks from high processor load.
-  Edit Mozzi/mozzi_config.h, uncomment 
-  	#define AUDIO_MODE STANDARD
-  and make sure the other 2 AUDIO_MODE defines are commented out.
-  
   Circuit:
-    Audio output on digital pin 9 (on a Uno or similar), or 
+    Audio output on digital pin 9 on a Uno or similar, or
+    DAC/A14 on Teensy 3.0/3.1, or 
     check the README or http://sensorium.github.com/Mozzi/
     
     Temperature dependent resistor (Thermistor) and 5.1k resistor on analog pin 1:
-      Thermistor from analog pin to +5V
+      Thermistor from analog pin to +5V (3.3V on Teensy 3.0/3.1)
       5.1k resistor from analog pin to ground
     
     Light dependent resistor (LDR) and 5.1k resistor on analog pin 2:
-      LDR from analog pin to +5V
+      LDR from analog pin to +5V (3.3V on Teensy 3.0/3.1)
       5.1k resistor from analog pin to ground
       
     Mozzi help/discussion/announcements:
     https://groups.google.com/forum/#!forum/mozzi-users
   
-    Tim Barrass 2012.
-    This example code is in the public domain.
+    Tim Barrass 2012, CC by-nc-sa.
 */
 
+//#include <ADC.h>  // Teensy 3.0/3.1 uncomment this line and install http://github.com/pedvide/ADC
 #include <MozziGuts.h>
 #include <Oscil.h>
 #include <tables/cos8192_int8.h>

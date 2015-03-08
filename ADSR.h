@@ -5,18 +5,7 @@
  *
  * This file is part of Mozzi.
  *
- * Mozzi is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Mozzi is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Mozzi.  If not, see <http://www.gnu.org/licenses/>.
+ * Mozzi is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
  *
  */
 
@@ -33,85 +22,98 @@
 #include "mozzi_fixmath.h"
 
 
-/** A simple ADSR envelope generator.
-@todo Test whether using the template parameter makes any difference to speed, 
+/** A simple ADSR envelope generator.  This implementation has separate update() and next()
+methods, where next() interpolates values between each update().
+The "normal" way to use this would be with update() in updateControl(), where it calculates a new internal state each control step,
+and then next() is in updateAudio(), called much more often, where it interpolates between the control values.
+This also allows the ADSR updates to be made even more sparsely if desired, eg. every 3rd control update.
+@tparam CONTROL_UPDATE_RATE The frequency of control updates.  
+Ordinarily this will be CONTROL_RATE, but an alternative (amongst others) is
+to set this as well as the LERP_RATE parameter to AUDIO_RATE, and call both update() and next() in updateAudio().
+Such a use would allow accurate envelopes with finer resolution of the control points than CONTROL_RATE.
+@tparam LERP_RATE Sets how often next() will be called, to interpolate between updates set by CONTROL_UPDATE_RATE.
+This will produce the smoothest results if it's set to AUDIO_RATE, but if you need to save processor time and your
+envelope changes slowly or controls something like a filter where there may not be problems with glitchy or clicking transitions,
+LERP_RATE could be set to CONTROL_RATE (for instance).  Then update() and next() could both be called in updateControl(), 
+greatly reducing the amount of processing required compared to calling next() in updateAudio().
+@todo Test whether using the template parameters makes any difference to speed, 
 and rationalise which units which do and don't need them.  
 Template objects are messy when you try to use pointers to them, 
 you have to include the whole template shebang in the pointer handling.
 */
-template <unsigned int CONTROL_UPDATE_RATE>
+template <unsigned int CONTROL_UPDATE_RATE, unsigned int LERP_RATE>
 class ADSR
 {
 private:
 
-	const unsigned int AUDIO_TICKS_PER_CONTROL;
+	const unsigned int LERPS_PER_CONTROL;
 
-	unsigned int phase_control_step_counter;
-	unsigned int phase_num_control_steps;
+	unsigned int update_step_counter;
+	unsigned int num_update_steps;
 
 	enum {ATTACK,DECAY,SUSTAIN,RELEASE,IDLE};
-	
-	
+
+
 	struct phase{
 		byte phase_type;
-		unsigned int control_steps;
-		unsigned long audio_steps;
+		unsigned int update_steps;
+		long lerp_steps; // signed, to match params to transition (line) type Q15n16, below
 		Q8n0 level;
 	}attack,decay,sustain,release,idle;
-	
+
 	phase * current_phase;
-	
+
 	// Linear audio rate transitions for envelope
-	Line <unsigned long> transition;
+	//Line <unsigned long> transition;
+	Line <Q15n16> transition; // scale up unsigned char levels for better accuracy, then scale down again for output
 
 	inline
-	unsigned int convertMsecToControlSteps(unsigned int msec){
-		return (uint) (((ulong)msec*CONTROL_UPDATE_RATE)>>10); // approximate /1000 with shift
+	unsigned int convertMsecToControlUpdateSteps(unsigned int msec){
+		return (uint16_t) (((uint32_t)msec*CONTROL_UPDATE_RATE)>>10); // approximate /1000 with shift
 	}
 
-	
+
 	inline
 	void setPhase(phase * next_phase) {
-		phase_control_step_counter = 0;
-		phase_num_control_steps = next_phase->control_steps;
-		transition.set(Q8n0_to_Q16n16(next_phase->level),next_phase->audio_steps);
+		update_step_counter = 0;
+		num_update_steps = next_phase->update_steps;
+		transition.set(Q8n0_to_Q15n16(next_phase->level),next_phase->lerp_steps);
 		current_phase = next_phase;
 	}
-	
-	
-	
+
+
+
 	inline
 	void checkForAndSetNextPhase(phase * next_phase) {
-		if (++phase_control_step_counter >= phase_num_control_steps){
+		if (++update_step_counter >= num_update_steps){
 			setPhase(next_phase);
 		}
 	}
-				
-	
+
+
+
 	inline
-	void checkForAndSetIdle() {
-		if (++phase_control_step_counter >= phase_num_control_steps){
-			transition.set(0,0,1);
-			current_phase = &idle;
-		}
-	}
-	
-	
-	
-inline
 	void setTime(phase * p, unsigned int msec)
 	{
-		p->control_steps=convertMsecToControlSteps(msec);
-		p->audio_steps = (ulong) p->control_steps * AUDIO_TICKS_PER_CONTROL;
+		p->update_steps = convertMsecToControlUpdateSteps(msec);
+		p->lerp_steps = (long) p->update_steps * LERPS_PER_CONTROL;
 	}
-	
 
-	
+
+	inline
+	void setUpdateSteps(phase * p, unsigned int steps)
+	{
+		p->update_steps = steps;
+		p->lerp_steps = (long) steps * LERPS_PER_CONTROL;
+	}
+
+
+
 public:
 
 	/** Constructor.
 	 */
-	ADSR():AUDIO_TICKS_PER_CONTROL(AUDIO_RATE/CONTROL_UPDATE_RATE)
+	ADSR():LERPS_PER_CONTROL(LERP_RATE/CONTROL_UPDATE_RATE)
 	{
 		attack.phase_type = ATTACK;
 		decay.phase_type = DECAY;
@@ -124,43 +126,46 @@ public:
     /** CW Assignment Constructor.
      */
 
-	
-/** Updates the internal controls of the ADSR.
-	Call this in updateControl().
-	*/
+
+	/** Updates the internal controls of the ADSR.
+		Call this in updateControl().
+		*/
 	void update(){ // control rate
-		
+
 		switch(current_phase->phase_type) {
-			
-			case ATTACK:
-				checkForAndSetNextPhase(&decay);
-				break;
 
-			case DECAY:
-					checkForAndSetNextPhase(&sustain);
-				break;
-					
-			case SUSTAIN:
-					checkForAndSetNextPhase(&release);										
-				break;
-					
-			case RELEASE:
-					checkForAndSetIdle();							
-				break;
+		case ATTACK:
+			checkForAndSetNextPhase(&decay);
+			break;
 
-		}	
+		case DECAY:
+			checkForAndSetNextPhase(&sustain);
+			break;
+
+		case SUSTAIN:
+			checkForAndSetNextPhase(&release);
+			break;
+
+		case RELEASE:
+			checkForAndSetNextPhase(&idle);
+			//checkForAndSetIdle();
+			break;
+
+		case IDLE:
+			break;
+		}
 	}
 
-	
-	
+
+
 	/** Advances one audio step along the ADSR and returns the level.
 	Call this in updateAudio().
-	@return the next value, as an unsigned int.
+	@return the next value, as an unsigned char.
 	 */
 	inline
-	unsigned int next()
+	unsigned char next()
 	{
-		return Q16n16_to_Q16n0(transition.next());
+		return Q15n16_to_Q8n0(transition.next());
 	}
 
 
@@ -178,11 +183,9 @@ public:
 	@todo fix release for rate rather than steps (time), so it releases at the same rate whatever the current level.
 	*/
 	inline
-	void noteOff(){   		
+	void noteOff(){
 		setPhase(&release);
 	}
-
-
 
 
 
@@ -216,38 +219,63 @@ public:
 	{
 		sustain.level=value;
 	}
-	
-	/** Set the release level of the ADSR.  Normally you'd make this 0, 
+
+	/** Set the release level of the ADSR.  Normally you'd make this 0,
 	but you have the option of some other value.
-	@param value the release level (normally 0).
+	@param value the release level (usually 0).
 	*/
 	inline
 	void setReleaseLevel(byte value)
 	{
 		release.level=value;
 	}
+
+
+		inline
+	void setIdleLevel(byte value)
+	{
+		idle.level=value;
+	}
 	
-	
-	
-	/** Set the attack and decay levels of the ADSR.  This assumes a conventional 
+
+	/** Set the attack and decay levels of the ADSR.  This assumes a conventional
 	ADSR where the sustain continues at the same level as the decay, till the release ramps to 0.
 	@param attack the new attack level.
-	@param decay the new sustain level.
+	@param decay the new decay level.
 	*/
 	inline
 	void setADLevels(byte attack, byte decay)
 	{
 		setAttackLevel(attack);
 		setDecayLevel(decay);
-		setSustainLevel(decay);
-		setReleaseLevel(0);
+		setSustainLevel(decay); // stay at decay level
+		setReleaseLevel(1);
+		setIdleLevel(0);	
 	}
-	
-	
-	
+
+
+	/** Set the attack, decay, sustain and release levels.
+	@param attack the new attack level.
+	@param decay the new sustain level.
+	@param attack the new sustain level.
+	@param decay the new release level.
+	*/
+	inline
+	void setLevels(byte attack, byte decay, byte sustain, byte release)
+	{
+		setAttackLevel(attack);
+		setDecayLevel(decay);
+		setSustainLevel(sustain);
+		setReleaseLevel(release);
+		setIdleLevel(0);	
+	}
+
+
 	/** Set the attack time of the ADSR in milliseconds.
 	The actual time taken will be resolved within the resolution of CONTROL_RATE.
 	@param msec the unsigned int attack time in milliseconds.
+	@note Beware of low values (less than 20 or so, depending on how many steps are being taken),
+	in case internal step size gets calculated as 0, which would mean nothing happens.
 	 */
 	inline
 	void setAttackTime(unsigned int msec)
@@ -259,6 +287,8 @@ public:
 	/** Set the decay time of the ADSR in milliseconds.
 	The actual time taken will be resolved within the resolution of CONTROL_RATE.
 	@param msec the unsigned int decay time in milliseconds.
+	@note Beware of low values (less than 20 or so, depending on how many steps are being taken),
+	in case internal step size gets calculated as 0, which would mean nothing happens.
 	*/
 	inline
 	void setDecayTime(unsigned int msec)
@@ -266,31 +296,41 @@ public:
 		setTime(&decay, msec);
 	}
 
-	
+
 	/** Set the sustain time of the ADSR in milliseconds.
 	The actual time taken will be resolved within the resolution of CONTROL_RATE.
 	The sustain phase will finish if the ADSR recieves a noteOff().
 	@param msec the unsigned int sustain time in milliseconds.
+	@note Beware of low values (less than 20 or so, depending on how many steps are being taken),
+	in case internal step size gets calculated as 0, which would mean nothing happens.
 	*/
 	inline
 	void setSustainTime(unsigned int msec)
 	{
 		setTime(&sustain, msec);
 	}
-	
-	
+
+
 
 	/** Set the release time of the ADSR in milliseconds.
 	The actual time taken will be resolved within the resolution of CONTROL_RATE.
 	@param msec the unsigned int release time in milliseconds.
+	@note Beware of low values (less than 20 or so, depending on how many steps are being taken),
+	in case internal step size gets calculated as 0, which would mean nothing happens.
 	*/
 	inline
 	void setReleaseTime(unsigned int msec)
 	{
 		setTime(&release, msec);
 	}
-	
 
+
+	inline
+	void setIdleTime(unsigned int msec)
+	{
+		setTime(&idle, msec); 	
+	}
+	
 
 	/** Set the attack, decay and release times of the ADSR in milliseconds.
 	The actual times will be resolved within the resolution of CONTROL_RATE.
@@ -298,6 +338,8 @@ public:
 	@param decay_ms the new decay time in milliseconds.
 	@param sustain_ms the new sustain time in milliseconds.
 	@param release_ms the new release time in milliseconds.
+	@note Beware of low values (less than 20 or so, depending on how many steps are being taken),
+	in case internal step size gets calculated as 0, which would mean nothing happens.
 	*/
 	inline
 	void setTimes(unsigned int attack_ms, unsigned int decay_ms, unsigned int sustain_ms, unsigned int release_ms)
@@ -306,6 +348,82 @@ public:
 		setDecayTime(decay_ms);
 		setSustainTime(sustain_ms);
 		setReleaseTime(release_ms);
+		setIdleTime(65535); // guarantee step size of line will be 0
+	}
+
+
+
+	/** Set the attack time of the ADSR, expressed as the number of update steps (not ADSR::next() interpolation steps) in the attack phase.
+	@param steps the number of times ADSR::update() will be called in the attack phase.
+	 */
+	inline
+	void setAttackUpdateSteps(unsigned int steps)
+	{
+		setUpdateSteps(&attack, steps);
+	}
+
+
+	/** Set the decay time of the ADSR, expressed as the number of update steps (not ADSR::next() interpolation steps) in the decay phase.
+	@param steps the number of times ADSR::update() will be called in the decay phase.
+	 */
+	inline
+	void setDecayUpdateSteps(unsigned int steps)
+	{
+		setUpdateSteps(&decay, steps);
+	}
+
+
+	/** Set the sustain time of the ADSR, expressed as the number of update steps (not ADSR::next() interpolation steps) in the sustain phase.
+	@param steps the number of times ADSR::update() will be called in the sustain phase.
+	*/
+	inline
+	void setSustainUpdateSteps(unsigned int steps)
+	{
+		setUpdateSteps(&sustain, steps);
+	}
+
+
+	/** Set the release time of the ADSR, expressed as the number of update steps (not ADSR::next() interpolation steps) in the release phase.
+	@param steps the number of times ADSR::update() will be called in the release phase.
+	 */
+	inline
+	void setReleaseUpdateSteps(unsigned int steps)
+	{
+		setUpdateSteps(&release, steps);
+	}
+
+
+		inline
+	void setIdleUpdateSteps(unsigned int steps)
+	{
+		setUpdateSteps(&idle, steps);
+	}
+	
+	/** Set the attack, decay and release times of the ADSR, expressed in update steps (not ADSR::next() interpolation steps).
+	@param attack_steps the number of update steps in the attack phase
+	@param decay_steps the number of update steps in the decay phase
+	@param sustain_steps the number of update steps in the sustain phase
+	@param release_steps the number of update steps in the release phase
+	*/
+	inline
+	void setAllUpdateSteps(unsigned int attack_steps, unsigned int decay_steps, unsigned int sustain_steps, unsigned int release_steps)
+	{
+		setAttackUpdateSteps(attack_steps);
+		setDecayUpdateSteps(decay_steps);
+		setSustainUpdateSteps(sustain_steps);
+		setReleaseUpdateSteps(release_steps);
+		setIdleUpdateSteps(65535); // guarantee step size of line will be 0
+	}
+
+
+
+	/** Tells if the envelope is currently playing.
+	@return true if playing, false if in IDLE state
+	*/
+	inline
+	bool playing()
+	{
+		return !(current_phase->phase_type==IDLE);
 	}
 
 

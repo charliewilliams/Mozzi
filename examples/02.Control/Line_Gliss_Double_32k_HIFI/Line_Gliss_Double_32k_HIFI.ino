@@ -13,14 +13,18 @@
     different phase increments smoothly at audio rate.
     Also shows how to use random offsets between the oscillators'
     frequencies to produce a chorusing/doubling effect.
+    
+    This sketch using HIFI mode is not for Teensy 3.0/3.1.
   
     IMPORTANT: this sketch requires Mozzi/mozzi_config.h to be
     be changed from STANDARD mode to HIFI.
     In Mozz/mozzi_config.h, change
     #define AUDIO_MODE STANDARD
+    //#define AUDIO_MODE STANDARD_PLUS
     //#define AUDIO_MODE HIFI
     to
     //#define AUDIO_MODE STANDARD
+    //#define AUDIO_MODE STANDARD_PLUS
     #define AUDIO_MODE HIFI
   
     Also, AUDIO_RATE can be changed from 16384 to 32768 in mozzi_config.h,
@@ -47,8 +51,7 @@
     Mozzi help/discussion/announcements:
     https://groups.google.com/forum/#!forum/mozzi-users
   
-    Tim Barrass 2012.
-    This example code is in the public domain.
+    Tim Barrass 2012, CC by-nc-sa.
 */
 
 #include <MozziGuts.h>
@@ -69,39 +72,33 @@ Oscil <SAW8192_NUM_CELLS, AUDIO_RATE> aSaw2(SAW8192_DATA);
 Line <long> aGliss1;
 Line <long> aGliss2;
 
-#define CONTROL_RATE 64 // powers of 2 please
-
-unsigned char lo_note = 24; // midi note numbers
-unsigned char hi_note = 46;
+byte lo_note = 24; // midi note numbers
+byte hi_note = 46;
 
 long audio_steps_per_gliss = AUDIO_RATE / 4; // ie. 4 glisses per second
 long control_steps_per_gliss = CONTROL_RATE / 4;
 
 // stuff for changing starting positions, probably just confusing really
 int counter = 0;
-unsigned char gliss_offset = 0;
-unsigned char gliss_offset_step = 2;
-unsigned char  gliss_offset_max = 36;
+byte gliss_offset = 0;
+byte gliss_offset_step = 2;
+byte  gliss_offset_max = 36;
 
 
 void setup() {
-  randSeed();
-  pinMode(0,OUTPUT); // without this, updateControl() gets interrupted ........??
-  startMozzi(CONTROL_RATE); // optional control rate parameter
-}
-
-
-void loop(){
-  audioHook();
+  //randSeed();
+  //pinMode(0,OUTPUT); // without this, updateControl() gets interrupted ........??
+  startMozzi(); // uses default 64 control rate
 }
 
 
 // variation between oscillator's phase increments
 // looks like a big number, but they are high precision 
-// and this is just like a fractional part
+// and this is just a fractional part
 long variation(){
   return rand(16383); 
 }
+
 
 void updateControl(){ // 900 us floats vs 160 fixed
   if (--counter <= 0){
@@ -129,7 +126,7 @@ void updateControl(){ // 900 us floats vs 160 fixed
     // find the phase increments (step sizes) through the audio table for those freqs
     // they are big ugly numbers which the oscillator understands but you don't really want to know
     long gliss_start = aSaw1.phaseIncFromFreq(start_freq);
-    long gliss_end = aSaw2.phaseIncFromFreq(end_freq);
+    long gliss_end = aSaw1.phaseIncFromFreq(end_freq);
     
     aGliss1.set(gliss_start, gliss_end, audio_steps_per_gliss);
     // aGliss2 is an octave up and detuned
@@ -145,3 +142,7 @@ int updateAudio(){
   return ((int)aSaw1.next()+aSaw2.next())<<5;
 }
 
+
+void loop(){
+  audioHook();
+}

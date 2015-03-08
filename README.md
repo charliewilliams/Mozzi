@@ -4,7 +4,7 @@
 
 
 Tim Barrass  
-version 2014-03-13-14:09  
+version 2014-08-09-14:15  
 
 Currently your Arduino can only beep like a microwave oven. Mozzi brings
 your Arduino to life by allowing it to produce much more complex and interesting
@@ -75,7 +75,7 @@ For details about HIFI mode, read the [Mozzi core module documentation](http://s
 ## Using Mozzi  
 Here's a template for an empty Mozzi sketch:  
 
-```
+```#include <ADC.h> // required from http://github.com/pedvide/ADC for Teensy 3.0/3.1
 #include <MozziGuts.h>   // at the top of your sketch
 
 void setup() {

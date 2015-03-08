@@ -5,18 +5,7 @@
  *
  * This file is part of Mozzi.
  *
- * Mozzi is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Mozzi is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Mozzi.  If not, see <http://www.gnu.org/licenses/>.
+ * Mozzi is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
  *
  */
 
@@ -43,11 +32,11 @@ public:
 	}
 
 	/** Process the next input value.
-	@param n the next value to process.
-	@return the input value mapped to the output range.
+	@param n the next integer to process.
+	@return the input integer mapped to the output range.
 	*/
 	int operator()(int n) const {
-		return (int) ((multiplier*(n-_IN_MIN)>>8) + _OUT_MIN); // (/ scale)
+		return (int) (((_MULTIPLIER*(n-_IN_MIN))>>8) + _OUT_MIN);
 	}
 
 	
